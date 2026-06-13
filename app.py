@@ -4,6 +4,72 @@ import fitz  # PyMuPDF
 import streamlit as st
 
 
+def apply_styles():
+    st.markdown(
+        """
+        <style>
+        .block-container {
+            max-width: 920px;
+            padding-top: 2.5rem;
+            padding-bottom: 4rem;
+        }
+        .quiz-hero {
+            padding: 2.25rem 0 1.5rem;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+            margin-bottom: 1.75rem;
+        }
+        .quiz-eyebrow {
+            color: #2f9bf4;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.75rem;
+        }
+        .quiz-hero h1 {
+            font-size: 3.5rem;
+            line-height: 1.05;
+            margin: 0 0 0.9rem;
+        }
+        .quiz-hero p {
+            color: rgba(180, 185, 195, 0.95);
+            font-size: 1.15rem;
+            line-height: 1.65;
+            max-width: 620px;
+            margin: 0;
+        }
+        .step-number {
+            color: #2f9bf4;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .step-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin: 0.3rem 0;
+        }
+        .step-copy {
+            color: rgba(160, 165, 175, 0.95);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        [data-testid="stFileUploader"] {
+            border: 1px solid rgba(128, 128, 128, 0.28);
+            border-radius: 8px;
+            padding: 0.6rem 1rem 1rem;
+        }
+        @media (max-width: 640px) {
+            .block-container { padding-top: 1.25rem; }
+            .quiz-hero h1 { font-size: 2.5rem; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def extract_text_from_pdf(uploaded_file):
     doc = fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")
     return "\n".join(page.get_text("text", sort=True) for page in doc)
@@ -61,6 +127,7 @@ def reset_quiz():
         "checked_questions",
         "answer_mode",
         "source_file",
+        "exit_quiz_requested",
     ]:
         st.session_state.pop(key, None)
 
@@ -79,10 +146,26 @@ def start_quiz(questions, answer_mode, source_file):
     st.session_state.current_index = 0
     st.session_state.user_answers = {}
     st.session_state.checked_questions = set()
+    st.session_state.exit_quiz_requested = False
 
 
 def submit_quiz():
     st.session_state.submitted = True
+
+
+def show_exit_confirmation():
+    st.warning("Exit this quiz? Your current answers and progress will be cleared.")
+    stay_col, exit_col = st.columns(2)
+
+    with stay_col:
+        if st.button("Keep answering", use_container_width=True):
+            st.session_state.exit_quiz_requested = False
+            st.rerun()
+
+    with exit_col:
+        if st.button("Exit to home", type="primary", use_container_width=True):
+            reset_quiz()
+            st.rerun()
 
 
 def show_results():
@@ -119,7 +202,7 @@ def show_results():
                 st.write("**Your answer:** Not answered")
             st.write(f"**Correct answer:** {correct}. {question['options'][correct]}")
 
-    if st.button("Start over", use_container_width=True):
+    if st.button("Return to home", use_container_width=True):
         reset_quiz()
         st.rerun()
 
@@ -131,7 +214,18 @@ def show_question():
     answer_mode = st.session_state.answer_mode
     checked = index in st.session_state.checked_questions
 
-    st.caption(f"Question {index + 1} of {len(questions)}")
+    heading_col, exit_col = st.columns([4, 1])
+    with heading_col:
+        st.caption(f"Question {index + 1} of {len(questions)}")
+    with exit_col:
+        if st.button("Exit quiz", use_container_width=True):
+            st.session_state.exit_quiz_requested = True
+            st.rerun()
+
+    if st.session_state.get("exit_quiz_requested"):
+        show_exit_confirmation()
+        return
+
     st.progress((index + 1) / len(questions))
     st.subheader(f"Question {question['number']}")
     st.write(question["question"])
@@ -202,14 +296,46 @@ def show_question():
 
 
 st.set_page_config(page_title="PDF Quiz Maker", page_icon="Q", layout="centered")
+apply_styles()
 
 if st.session_state.get("submitted"):
     show_results()
 elif st.session_state.get("quiz_started"):
     show_question()
 else:
-    st.title("PDF Quiz Maker")
-    st.write("Upload a quiz PDF and answer it one question at a time.")
+    st.markdown(
+        """
+        <section class="quiz-hero">
+            <div class="quiz-eyebrow">A simpler way to revise</div>
+            <h1>Quiz Maker</h1>
+            <p>Turn a multiple-choice PDF into a focused, interactive quiz.
+            Choose when to reveal answers and work through it one question at a time.</p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    step_one, step_two, step_three = st.columns(3)
+    steps = [
+        ("01", "Upload your PDF", "Use a text-based PDF with numbered questions and A-D answers."),
+        ("02", "Choose your mode", "Learn with instant feedback or keep every answer hidden until the end."),
+        ("03", "Start revising", "Move one question at a time and review your final result."),
+    ]
+    for column, (number, title, copy) in zip(
+        [step_one, step_two, step_three], steps
+    ):
+        with column:
+            st.markdown(
+                f"""
+                <div class="step-number">{number}</div>
+                <div class="step-title">{title}</div>
+                <div class="step-copy">{copy}</div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.subheader("Create a quiz")
+    st.caption("Your PDF is processed for this quiz session and is not saved by the app.")
 
     uploaded_pdf = st.file_uploader("Upload your quiz PDF", type=["pdf"])
 
